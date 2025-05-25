@@ -1,3 +1,2 @@
-python-telegram-bot==20.3
-img2pdf
+python-telegram-bot>=20.0
 Pillow
