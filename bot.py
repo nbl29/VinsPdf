@@ -1,115 +1,83 @@
 import os
-import logging
-from pathlib import Path
+import io
+from PIL import Image
 from telegram import Update, InputFile
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
-import img2pdf
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
-# Logging
-logging.basicConfig(level=logging.INFO)
+# Mengambil Token Telegram Bot dari variabel lingkungan
+TOKEN = os.getenv('7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk')
 
-# Folder sementara
-TMP_DIR = "tmp"
-Path(TMP_DIR).mkdir(exist_ok=True)
+# Direktori untuk menyimpan gambar sementara
+IMAGES_FOLDER = 'images'
+os.makedirs(IMAGES_FOLDER, exist_ok=True)
 
-# Dictionary user -> list file image
-user_photos = {}
+# List untuk menyimpan gambar
+images_list = []
 
-# /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Selamat datang! Kirim beberapa gambar, lalu kirim /done untuk mendapatkan file PDF.\n"
-        "Gunakan /reset untuk menghapus gambar sebelumnya."
-    )
+# Fungsi untuk menangani perintah /start
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text('Kirim gambar yang ingin Anda konversi menjadi PDF.')
 
-# /reset
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in user_photos:
-        for path in user_photos[user_id]:
-            if os.path.exists(path):
-                os.remove(path)
-        user_photos[user_id] = []
-    await update.message.reply_text("Semua gambar telah dihapus. Silakan kirim ulang.")
+# Fungsi untuk menangani gambar yang dikirim
+def handle_photo(update: Update, context: CallbackContext):
+    photo = update.message.photo[-1]  # Ambil foto dengan kualitas tertinggi
+    file = photo.get_file()
+    file_path = os.path.join(IMAGES_FOLDER, f'{photo.file_id}.jpg')
+    
+    file.download(file_path)  # Simpan gambar ke direktori sementara
+    images_list.append(file_path)  # Tambahkan gambar ke daftar
+    update.message.reply_text('Gambar diterima! Kirim gambar lain atau ketik /done untuk selesai.')
 
-# Menerima gambar
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in user_photos:
-        user_photos[user_id] = []
-
-    photo = update.message.photo[-1]  # Resolusi tertinggi
-    file = await photo.get_file()
-    index = len(user_photos[user_id])
-    filename = str(Path(TMP_DIR) / f"{user_id}_{index}.jpg")
-    filename = os.path.abspath(filename)
-
-    await file.download_to_drive(custom_path=filename)
-
-    # Validasi penyimpanan
-    if os.path.exists(filename) and os.path.getsize(filename) > 0:
-        user_photos[user_id].append(filename)
-        await update.message.reply_text(f"Gambar {index + 1} diterima.")
-        print(f"[DEBUG] Disimpan: {filename}")
-    else:
-        await update.message.reply_text("⚠️ Gagal menyimpan gambar.")
-
-# /done: konversi ke PDF dan kirim ke user
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    photos = user_photos.get(user_id, [])
-
-    if not photos:
-        await update.message.reply_text("Belum ada gambar yang dikirim.")
+# Fungsi untuk menangani perintah /done
+def done(update: Update, context: CallbackContext):
+    if not images_list:
+        update.message.reply_text('Belum ada gambar yang diunggah. Kirim gambar terlebih dahulu.')
         return
 
-    valid_photos = []
-    for path in photos:
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            valid_photos.append(path)
+    update.message.reply_text('Masukkan nama file PDF (tanpa ekstensi):')
+    return 'GET_PDF_NAME'  # Menandakan bahwa bot menunggu nama file PDF
 
-    if not valid_photos:
-        await update.message.reply_text("Semua file gagal dikonversi.")
+# Fungsi untuk menangani nama file PDF
+def get_pdf_name(update: Update, context: CallbackContext):
+    pdf_name = update.message.text.strip()
+    if not pdf_name:
+        update.message.reply_text('Nama file tidak boleh kosong. Masukkan nama file PDF (tanpa ekstensi):')
         return
 
-    output_pdf = str(Path(TMP_DIR) / f"{user_id}_output.pdf")
+    pdf_file_path = os.path.join(IMAGES_FOLDER, f'{pdf_name}.pdf')
+    
+    # Mengonversi gambar ke dalam PDF
+    images = [Image.open(img_path) for img_path in images_list]
+    for i in range(len(images)):
+        images[i] = images[i].convert('RGB')
 
-    try:
-        with open(output_pdf, "wb") as f:
-            f.write(img2pdf.convert(valid_photos))
+    images[0].save(pdf_file_path, save_all=True, append_images=images[1:])
 
-        await update.message.reply_document(
-            InputFile(output_pdf),
-            caption="✅ Berikut hasil konversi PDF-mu!"
-        )
-    except Exception as e:
-        await update.message.reply_text(f"Gagal membuat PDF: {e}")
-        print(f"[ERROR] {e}")
-    finally:
-        # Menghapus file gambar yang valid
-        for path in valid_photos:
-            if os.path.exists(path):
-                os.remove(path)
-        # Menghapus pdf output
-        if os.path.exists(output_pdf):
-            os.remove(output_pdf)
-        user_photos[user_id] = []
+    # Mengirim file PDF ke pengguna
+    with open(pdf_file_path, 'rb') as pdf_file:
+        update.message.reply_document(document=InputFile(pdf_file), filename=f'{pdf_name}.pdf')
 
-# Main
-if __name__ == "__main__":
-    TOKEN = "7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk"  # Ganti token sesuai bot kamu
-    app = ApplicationBuilder().token(TOKEN).build()
+    # Hapus gambar sementara setelah konversi
+    for img in images_list:
+        os.remove(img)
+    images_list.clear()  # Kosongkan daftar gambar
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("done", done))
-    app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    update.message.reply_text('PDF telah dibuat! Kirim lebih banyak gambar atau ketik /start untuk memulai kembali.')
 
-    print("Bot aktif...")
-    app.run_polling()
+# Fungsi utama untuk menjalankan bot
+def main():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
+    dp.add_handler(CommandHandler("done", done))
+
+    # Handler untuk menangani input nama file PDF
+    dp.add_handler(MessageHandler(Filters.text & Filters.command, get_pdf_name))
+
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
