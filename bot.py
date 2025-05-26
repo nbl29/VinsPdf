@@ -2,10 +2,10 @@ import os
 import io
 from PIL import Image
 from telegram import Update, InputFile
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext  # Ganti Filters dengan filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Mengambil Token Telegram Bot dari variabel lingkungan
-TOKEN = os.getenv('7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk')
+TOKEN = '7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk'  # Periksa ini agar tidak disertakan di sini untuk keamanan
 
 # Direktori untuk menyimpan gambar sementara
 IMAGES_FOLDER = 'images'
@@ -66,15 +66,15 @@ def get_pdf_name(update: Update, context: CallbackContext):
 
 # Fungsi utama untuk menjalankan bot
 def main():
-    updater = Updater(TOKEN, use_context=True)
+    updater = Updater(TOKEN)  # Hapus use_context
     dp = updater.dispatcher
 
     dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # Ganti Filters.photo dengan filters.PHOTO
+    dp.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # Menggunakan filters
     dp.add_handler(CommandHandler("done", done))
-
+    
     # Handler untuk menangani input nama file PDF
-    dp.add_handler(MessageHandler(filters.TEXT & filters.Command, get_pdf_name))  # Ganti Filters.text dengan filters.TEXT
+    dp.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, get_pdf_name))  # Menggunakan filters
 
     updater.start_polling()
     updater.idle()
