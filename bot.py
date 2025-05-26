@@ -3,9 +3,10 @@ import io
 from PIL import Image
 from telegram import Update, InputFile
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import asyncio
 
 # Mengambil Token Telegram Bot dari variabel lingkungan
-TOKEN = '7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk'  # Import ini dengan aman di lingkungan Anda
+TOKEN = '7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk'  # Pastikan untuk mengatur ini secara aman
 
 # Direktori untuk menyimpan gambar sementara
 IMAGES_FOLDER = 'images'
@@ -77,5 +78,5 @@ async def main():
     await application.run_polling()  # Menggunakan run_polling untuk menjalankan bot
 
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())  # Mengoptimalkan dengan asyncio
+    loop = asyncio.get_event_loop()  # Ambil loop yang sudah ada
+    loop.run_until_complete(main())  # Menjalankan main
