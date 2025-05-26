@@ -17,18 +17,42 @@ WAITING_FOR_NAME = 2
 
 # Menyimpan sementara file gambar dan chat_id pengguna
 user_data = {}
+active_users = {}  # Menyimpan siapa yang sedang aktif di bot
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Halo! Kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
+        "Halo! Untuk mulai, ketik /vins dan kirim gambar yang ingin Anda konversi ke PDF. Kirim /cancel untuk membatalkan."
     )
 
+async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+
+    # Cek apakah ada pengguna yang sedang berinteraksi
+    if user_id in active_users:
+        await update.message.reply_text("Anda sudah dalam proses. Kirim lebih banyak gambar atau gunakan /cancel.")
+        return
+
+    active_users[user_id] = chat_id
+    await update.message.reply_text(
+        "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
+    )
+
+    return WAITING_FOR_PHOTOS
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    # Cek apakah pengguna sedang dalam percakapan
+    if user_id not in active_users or active_users[user_id] != chat_id:
+        await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
+        return
+
     photo_file = await update.message.photo[-1].get_file()
     photo_bytes = await photo_file.download_as_bytearray()
 
     # Simpan foto di user_data sementara
-    chat_id = update.effective_chat.id
     if chat_id not in user_data:
         user_data[chat_id] = {
             "photos": []
@@ -41,7 +65,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_FOR_PHOTOS
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+
+    # Cek jika pengguna dalam percakapan
+    if user_id not in active_users or active_users[user_id] != chat_id:
+        await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
+        return
 
     if chat_id not in user_data or not user_data[chat_id]["photos"]:
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
@@ -52,12 +82,19 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return WAITING_FOR_NAME
 
 async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    # Cek jika pengguna dalam percakapan
+    if user_id not in active_users or active_users[user_id] != chat_id:
+        await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
+        return
+
     file_name = update.message.text.strip()
     if not file_name:
         await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
         return WAITING_FOR_NAME
     
-    chat_id = update.effective_chat.id
     data = user_data.get(chat_id)
     if not data or not data["photos"]:
         await update.message.reply_text("Terjadi kesalahan. Silakan kirim gambar lagi.")
@@ -83,11 +120,16 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Bersihkan data sementara
     del user_data[chat_id]
+    del active_users[user_id]  # Hapus pengguna dari daftar aktif
 
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    if user_id in active_users:
+        del active_users[user_id]
+
     if chat_id in user_data:
         del user_data[chat_id]
 
@@ -102,7 +144,7 @@ def main():
     
     # ConversationHandler untuk menangani percakapan
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.PHOTO, handle_photo)],
+        entry_points=[CommandHandler("vins", vins)],
         states={
             WAITING_FOR_PHOTOS: [MessageHandler(filters.PHOTO, handle_photo), CommandHandler("done", done)],
             WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)],
