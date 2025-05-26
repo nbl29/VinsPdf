@@ -32,13 +32,13 @@ async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     active_users.add(user_id)
-    user_data[user_id] = {"photos": []}  # Simpan data berdasarkan user_id
+    user_data[user_id] = {"photos": [], "message_ids": []}  # Simpan data berdasarkan user_id
     message = await update.message.reply_text(
         "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
     )
 
     # Simpan ID pesan yang akan dihapus nanti
-    user_data[user_id]["initial_message_id"] = message.message_id
+    user_data[user_id]["message_ids"].append(message.message_id)
 
     return WAITING_FOR_PHOTOS
 
@@ -53,7 +53,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = await photo_file.download_as_bytearray()
     user_data[user_id]["photos"].append(photo_bytes)
     
-    await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
+    received_message = await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
+    user_data[user_id]["message_ids"].append(received_message.message_id)
+
     return WAITING_FOR_PHOTOS
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,15 +68,12 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
 
-    # Hapus pesan awal dan semua gambar-gambar yang diterima
-    initial_message_id = user_data[user_id].get("initial_message_id")
-    if initial_message_id:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=initial_message_id)
-
-    # Hapus pesan gambar yang diterima
-    for _ in user_data[user_id]["photos"]:
-        await update.message.reply_text("Gambar sedang diproses...")  # Mengirimkan pesan tentang pemrosesan
-        await asyncio.sleep(1)  # Delay untuk mensimulasikan pemrosesan
+    # Hapus pesan setelah semua gambar diterima
+    for message_id in user_data[user_id]["message_ids"]:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
+        except Exception as e:
+            print(f"Error deleting message {message_id}: {e}")
 
     # Minta nama file
     await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
@@ -108,6 +107,13 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         document=InputFile(pdf_stream, filename=f"{file_name}.pdf"),
         caption="Berikut PDF yang telah dibuat!"
     )
+
+    # Hapus semua pesan gambar dan permintaan dari pengguna
+    for message_id in user_data[user_id]["message_ids"]:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
+        except Exception as e:
+            print(f"Error deleting message {message_id}: {e}")
 
     # Bersihkan data pengguna
     del user_data[user_id]
