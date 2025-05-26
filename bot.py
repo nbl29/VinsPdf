@@ -15,9 +15,9 @@ from telegram.ext import (
 WAITING_FOR_PHOTOS = 1
 WAITING_FOR_NAME = 2
 
-# Menyimpan sementara file gambar dan chat_id pengguna
-user_data = {}
-active_users = {}  # Menyimpan siapa yang sedang aktif di bot
+# Menyimpan data pengguna dan status aktif
+user_data = {}  # Menyimpan data berdasarkan user_id
+active_users = set()  # Menggunakan set untuk menyimpan ID pengguna yang sedang aktif
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -25,15 +25,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
     user_id = update.effective_user.id
-
-    # Cek apakah ada pengguna yang sedang berinteraksi
     if user_id in active_users:
         await update.message.reply_text("Anda sudah dalam proses. Kirim lebih banyak gambar atau gunakan /cancel.")
         return
 
-    active_users[user_id] = chat_id
+    active_users.add(user_id)
+    user_data[user_id] = {"photos": []}  # Simpan data berdasarkan user_id
     await update.message.reply_text(
         "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
     )
@@ -42,38 +40,25 @@ async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    # Cek apakah pengguna sedang dalam percakapan
-    if user_id not in active_users or active_users[user_id] != chat_id:
+    if user_id not in active_users:
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
 
     photo_file = await update.message.photo[-1].get_file()
     photo_bytes = await photo_file.download_as_bytearray()
 
-    # Simpan foto di user_data sementara
-    if chat_id not in user_data:
-        user_data[chat_id] = {
-            "photos": []
-        }
-    
-    user_data[chat_id]["photos"].append(photo_bytes)
-    
+    user_data[user_id]["photos"].append(photo_bytes)
     await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
 
     return WAITING_FOR_PHOTOS
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    # Cek jika pengguna dalam percakapan
-    if user_id not in active_users or active_users[user_id] != chat_id:
+    if user_id not in active_users:
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
 
-    if chat_id not in user_data or not user_data[chat_id]["photos"]:
+    if user_id not in user_data or not user_data[user_id]["photos"]:
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
 
@@ -83,10 +68,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
-
-    # Cek jika pengguna dalam percakapan
-    if user_id not in active_users or active_users[user_id] != chat_id:
+    if user_id not in active_users:
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
 
@@ -95,12 +77,7 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
         return WAITING_FOR_NAME
     
-    data = user_data.get(chat_id)
-    if not data or not data["photos"]:
-        await update.message.reply_text("Terjadi kesalahan. Silakan kirim gambar lagi.")
-        return ConversationHandler.END
-
-    photos_bytes = data["photos"]
+    photos_bytes = user_data[user_id]["photos"]
 
     # Konversi gambar-gambar ke PDF
     images = []
@@ -118,20 +95,19 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption="Berikut PDF yang telah dibuat!"
     )
     
-    # Bersihkan data sementara
-    del user_data[chat_id]
-    del active_users[user_id]  # Hapus pengguna dari daftar aktif
+    # Bersihkan data pengguna
+    del user_data[user_id]
+    active_users.remove(user_id)  # Hapus pengguna dari daftar aktif
 
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    chat_id = update.effective_chat.id
     if user_id in active_users:
-        del active_users[user_id]
+        active_users.remove(user_id)
 
-    if chat_id in user_data:
-        del user_data[chat_id]
+    if user_id in user_data:
+        del user_data[user_id]
 
     await update.message.reply_text("Dibatalkan.")
     return ConversationHandler.END
