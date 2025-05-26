@@ -33,9 +33,12 @@ async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     active_users.add(user_id)
     user_data[user_id] = {"photos": []}  # Simpan data berdasarkan user_id
-    await update.message.reply_text(
+    message = await update.message.reply_text(
         "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
     )
+
+    # Simpan ID pesan yang akan dihapus nanti
+    user_data[user_id]["initial_message_id"] = message.message_id
 
     return WAITING_FOR_PHOTOS
 
@@ -63,9 +66,13 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
 
-    # Hapus gambar-gambar yang diterima
-    photos = user_data[user_id]["photos"]
-    for _ in photos:
+    # Hapus pesan awal dan semua gambar-gambar yang diterima
+    initial_message_id = user_data[user_id].get("initial_message_id")
+    if initial_message_id:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=initial_message_id)
+
+    # Hapus pesan gambar yang diterima
+    for _ in user_data[user_id]["photos"]:
         await update.message.reply_text("Gambar sedang diproses...")  # Mengirimkan pesan tentang pemrosesan
         await asyncio.sleep(1)  # Delay untuk mensimulasikan pemrosesan
 
