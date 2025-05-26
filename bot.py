@@ -17,8 +17,8 @@ WAITING_FOR_PHOTOS = 1
 WAITING_FOR_NAME = 2
 
 # Menyimpan data pengguna dan status aktif
-user_data = {}  # Menyimpan data berdasarkan user_id
-active_users = set()  # Menggunakan set untuk menyimpan ID pengguna yang sedang aktif
+user_data = {}
+active_users = set()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -32,14 +32,12 @@ async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     active_users.add(user_id)
-    user_data[user_id] = {"photos": [], "message_ids": []}  # Simpan data berdasarkan user_id
+    user_data[user_id] = {"photos": [], "message_ids": []}
     message = await update.message.reply_text(
         "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
     )
 
-    # Simpan ID pesan yang akan dihapus nanti
     user_data[user_id]["message_ids"].append(message.message_id)
-
     return WAITING_FOR_PHOTOS
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -48,11 +46,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
 
-    # Simpan gambar yang diterima
     photo_file = await update.message.photo[-1].get_file()
     photo_bytes = await photo_file.download_as_bytearray()
     user_data[user_id]["photos"].append(photo_bytes)
-    
+
     received_message = await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
     user_data[user_id]["message_ids"].append(received_message.message_id)
 
@@ -63,7 +60,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in active_users:
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
-
+    
     if user_id not in user_data or not user_data[user_id]["photos"]:
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
@@ -73,7 +70,7 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
         except Exception as e:
-            print(f"Error deleting message {message_id}: {e}")
+            print(f"Error deleting message {message_id}: {e}. Chat ID: {update.effective_chat.id}")
 
     # Minta nama file
     await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
@@ -92,6 +89,12 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     photos_bytes = user_data[user_id]["photos"]
 
+    # Mengirim pesan proses
+    process_message = await update.message.reply_text("PDF sedang diproses...")
+    
+    # Delay sebelum mengirim PDF
+    await asyncio.sleep(3)  # Ganti dengan 5 jika ingin lebih lama
+
     # Konversi gambar-gambar ke PDF
     images = []
     for photo_bytes in photos_bytes:
@@ -108,12 +111,18 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption="Berikut PDF yang telah dibuat!"
     )
 
+    # Hapus pesan proses
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=process_message.message_id)
+    except Exception as e:
+        print(f"Error deleting process message: {e}")
+
     # Hapus semua pesan gambar dan permintaan dari pengguna
     for message_id in user_data[user_id]["message_ids"]:
         try:
             await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
         except Exception as e:
-            print(f"Error deleting message {message_id}: {e}")
+            print(f"Error deleting message {message_id}: {e}. Chat ID: {update.effective_chat.id}")
 
     # Bersihkan data pengguna
     del user_data[user_id]
