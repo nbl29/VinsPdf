@@ -48,8 +48,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = await photo_file.download_as_bytearray()
 
     user_data[user_id]["photos"].append(photo_bytes)
-    await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
 
+    # Menghapus pesan gambar yang diterima dari pengguna
+    await update.message.delete()
+    
+    await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
     return WAITING_FOR_PHOTOS
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -94,7 +97,10 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         document=InputFile(pdf_stream, filename=f"{file_name}.pdf"),
         caption="Berikut PDF yang telah dibuat!"
     )
-    
+
+    # Menghapus pesan input nama file
+    await update.message.delete()
+
     # Bersihkan data pengguna
     del user_data[user_id]
     active_users.remove(user_id)  # Hapus pengguna dari daftar aktif
