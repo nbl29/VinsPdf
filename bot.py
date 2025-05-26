@@ -54,7 +54,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = await photo_file.download_as_bytearray()
     user_data[user_id]["photos"].append(photo_bytes)
 
-    # Catat pesan pengguna (gambar)
     user_data[user_id]["message_ids"].append(update.message.message_id)
 
     reply = await update.message.reply_text(
@@ -73,9 +72,11 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
 
+    # Menyimpan pesan /done
+    user_data[user_id]["message_ids"].append(update.message.message_id)
+
     reply = await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
     user_data[user_id]["message_ids"].append(reply.message_id)
-    user_data[user_id]["message_ids"].append(update.message.message_id)  # pesan /done
     return WAITING_FOR_NAME
 
 async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -88,11 +89,7 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not file_name:
         reply = await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
         user_data[user_id]["message_ids"].append(reply.message_id)
-        user_data[user_id]["message_ids"].append(update.message.message_id)
         return WAITING_FOR_NAME
-
-    # Catat pesan nama file dari pengguna
-    user_data[user_id]["message_ids"].append(update.message.message_id)
 
     # Hapus semua pesan pengguna & bot sebelumnya
     for message_id in user_data[user_id]["message_ids"]:
