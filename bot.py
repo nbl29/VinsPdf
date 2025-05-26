@@ -1,5 +1,6 @@
 import os
 import io
+import asyncio
 from PIL import Image
 from telegram import Update, InputFile
 from telegram.ext import (
@@ -44,13 +45,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
 
+    # Simpan gambar yang diterima
     photo_file = await update.message.photo[-1].get_file()
     photo_bytes = await photo_file.download_as_bytearray()
-
     user_data[user_id]["photos"].append(photo_bytes)
-
-    # Menghapus pesan gambar yang diterima dari pengguna
-    await update.message.delete()
     
     await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
     return WAITING_FOR_PHOTOS
@@ -64,6 +62,12 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_data or not user_data[user_id]["photos"]:
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
+
+    # Hapus gambar-gambar yang diterima
+    photos = user_data[user_id]["photos"]
+    for _ in photos:
+        await update.message.reply_text("Gambar sedang diproses...")  # Mengirimkan pesan tentang pemrosesan
+        await asyncio.sleep(1)  # Delay untuk mensimulasikan pemrosesan
 
     # Minta nama file
     await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
@@ -97,9 +101,6 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         document=InputFile(pdf_stream, filename=f"{file_name}.pdf"),
         caption="Berikut PDF yang telah dibuat!"
     )
-
-    # Menghapus pesan input nama file
-    await update.message.delete()
 
     # Bersihkan data pengguna
     del user_data[user_id]
