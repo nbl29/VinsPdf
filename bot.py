@@ -22,21 +22,25 @@ active_users = set()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Halo! Untuk mulai, ketik /vins dan kirim gambar yang ingin Anda konversi ke PDF. Kirim /cancel untuk membatalkan."
+        "Halo! Untuk mulai, ketik /vins dan kirim gambar yang ingin Anda konversi ke PDF. "
+        "Ketik /cancel untuk membatalkan."
     )
 
 async def vins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in active_users:
-        await update.message.reply_text("Anda sudah dalam proses. Kirim lebih banyak gambar atau gunakan /cancel.")
+        await update.message.reply_text(
+            "Anda sudah dalam proses. Kirim lebih banyak gambar atau gunakan /cancel."
+        )
         return
 
     active_users.add(user_id)
     user_data[user_id] = {"photos": [], "message_ids": []}
-    message = await update.message.reply_text(
-        "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. Kirim /done jika sudah selesai."
-    )
 
+    message = await update.message.reply_text(
+        "Silakan kirimkan gambar yang ingin Anda konversi ke PDF. "
+        "Ketik /done jika sudah selesai."
+    )
     user_data[user_id]["message_ids"].append(message.message_id)
     return WAITING_FOR_PHOTOS
 
@@ -50,9 +54,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_bytes = await photo_file.download_as_bytearray()
     user_data[user_id]["photos"].append(photo_bytes)
 
-    received_message = await update.message.reply_text(f"Gambar diterima. Kirim lebih banyak atau gunakan /done untuk menyelesaikan.")
-    user_data[user_id]["message_ids"].append(received_message.message_id)
+    # Catat pesan pengguna (gambar)
+    user_data[user_id]["message_ids"].append(update.message.message_id)
 
+    reply = await update.message.reply_text(
+        "Gambar diterima. Kirim lebih banyak atau ketik /done untuk menyelesaikan."
+    )
+    user_data[user_id]["message_ids"].append(reply.message_id)
     return WAITING_FOR_PHOTOS
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,20 +68,14 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in active_users:
         await update.message.reply_text("Ketik /vins untuk memulai proses konversi PDF.")
         return
-    
-    if user_id not in user_data or not user_data[user_id]["photos"]:
+
+    if not user_data[user_id]["photos"]:
         await update.message.reply_text("Belum ada gambar yang diterima. Silakan kirim gambar terlebih dahulu.")
         return WAITING_FOR_PHOTOS
 
-    # Hapus pesan setelah semua gambar diterima
-    for message_id in user_data[user_id]["message_ids"]:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
-        except Exception as e:
-            print(f"Error deleting message {message_id}: {e}. Chat ID: {update.effective_chat.id}")
-
-    # Minta nama file
-    await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
+    reply = await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
+    user_data[user_id]["message_ids"].append(reply.message_id)
+    user_data[user_id]["message_ids"].append(update.message.message_id)  # pesan /done
     return WAITING_FOR_NAME
 
 async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,26 +86,41 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file_name = update.message.text.strip()
     if not file_name:
-        await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
+        reply = await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
+        user_data[user_id]["message_ids"].append(reply.message_id)
+        user_data[user_id]["message_ids"].append(update.message.message_id)
         return WAITING_FOR_NAME
-    
-    photos_bytes = user_data[user_id]["photos"]
 
-    # Mengirim pesan proses
+    # Catat pesan nama file dari pengguna
+    user_data[user_id]["message_ids"].append(update.message.message_id)
+
+    # Hapus semua pesan pengguna & bot sebelumnya
+    for message_id in user_data[user_id]["message_ids"]:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
+        except Exception as e:
+            print(f"Error deleting message {message_id}: {e}")
+
+    # Kirim pesan sementara "PDF sedang diproses..."
     process_message = await update.message.reply_text("PDF sedang diproses...")
-    
-    # Delay sebelum mengirim PDF
-    await asyncio.sleep(3)  # Ganti dengan 5 jika ingin lebih lama
 
     # Konversi gambar-gambar ke PDF
-    images = []
-    for photo_bytes in photos_bytes:
-        image = Image.open(io.BytesIO(photo_bytes)).convert("RGB")
-        images.append(image)
+    images = [
+        Image.open(io.BytesIO(photo_bytes)).convert("RGB")
+        for photo_bytes in user_data[user_id]["photos"]
+    ]
 
     pdf_stream = io.BytesIO()
     images[0].save(pdf_stream, save_all=True, append_images=images[1:], format="PDF")
     pdf_stream.seek(0)
+
+    await asyncio.sleep(2)  # delay jika ingin lebih dramatis
+
+    # Hapus pesan "PDF sedang diproses..."
+    try:
+        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=process_message.message_id)
+    except Exception as e:
+        print(f"Error deleting process message: {e}")
 
     # Kirim file PDF ke pengguna
     await update.message.reply_document(
@@ -111,55 +128,41 @@ async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption="Berikut PDF yang telah dibuat!"
     )
 
-    # Hapus pesan proses
-    try:
-        await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=process_message.message_id)
-    except Exception as e:
-        print(f"Error deleting process message: {e}")
-
-    # Hapus semua pesan gambar dan permintaan dari pengguna
-    for message_id in user_data[user_id]["message_ids"]:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=message_id)
-        except Exception as e:
-            print(f"Error deleting message {message_id}: {e}. Chat ID: {update.effective_chat.id}")
-
     # Bersihkan data pengguna
     del user_data[user_id]
-    active_users.remove(user_id)  # Hapus pengguna dari daftar aktif
-
+    active_users.remove(user_id)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in active_users:
         active_users.remove(user_id)
-
     if user_id in user_data:
         del user_data[user_id]
-
     await update.message.reply_text("Dibatalkan.")
     return ConversationHandler.END
 
 def main():
-    # Ganti dengan token bot Anda
     BOT_TOKEN = "7676918385:AAEnyECKBbQ9fnJk6h1TvWsGm6yiaj7h8As"  # Ganti dengan token bot Anda
-    
     application = ApplicationBuilder().token(BOT_TOKEN).build()
-    
-    # ConversationHandler untuk menangani percakapan
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("vins", vins)],
         states={
-            WAITING_FOR_PHOTOS: [MessageHandler(filters.PHOTO, handle_photo), CommandHandler("done", done)],
-            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)],
+            WAITING_FOR_PHOTOS: [
+                MessageHandler(filters.PHOTO, handle_photo),
+                CommandHandler("done", done)
+            ],
+            WAITING_FOR_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-    
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
-    
+
     print("Bot sedang berjalan...")
     application.run_polling()
 
