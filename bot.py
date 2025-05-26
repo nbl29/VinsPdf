@@ -2,81 +2,93 @@ import os
 import io
 from PIL import Image
 from telegram import Update, InputFile
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import asyncio
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+)
 
-# Mengambil Token Telegram Bot dari variabel lingkungan
-TOKEN = '7676918385:AAHreNwpLsnekkPd7QLe8buTflXrbHE0yzk'  # Pastikan untuk mengatur ini secara aman
+# Tahapan percakapan
+WAITING_FOR_NAME = 1
 
-# Direktori untuk menyimpan gambar sementara
-IMAGES_FOLDER = 'images'
-os.makedirs(IMAGES_FOLDER, exist_ok=True)
+# Menyimpan sementara file gambar dan chat_id pengguna
+user_data = {}
 
-# List untuk menyimpan gambar
-images_list = []
-
-# Fungsi untuk menangani perintah /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Kirim gambar yang ingin Anda konversi menjadi PDF.')
+    await update.message.reply_text(
+        "Halo! Kirimkan gambar yang ingin Anda konversi ke PDF."
+    )
 
-# Fungsi untuk menangani gambar yang dikirim
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]  # Ambil foto dengan kualitas tertinggi
-    file = photo.get_file()
-    file_path = os.path.join(IMAGES_FOLDER, f'{photo.file_id}.jpg')
+    photo_file = await update.message.photo[-1].get_file()
+    photo_bytes = await photo_file.download_as_bytearray()
     
-    await file.download(file_path)  # Simpan gambar ke direktori sementara
-    images_list.append(file_path)  # Tambahkan gambar ke daftar
-    await update.message.reply_text('Gambar diterima! Kirim gambar lain atau ketik /done untuk selesai.')
-
-# Fungsi untuk menangani perintah /done
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not images_list:
-        await update.message.reply_text('Belum ada gambar yang diunggah. Kirim gambar terlebih dahulu.')
-        return
-
-    await update.message.reply_text('Masukkan nama file PDF (tanpa ekstensi):')
-    return 'GET_PDF_NAME'  # Menandakan bahwa bot menunggu nama file PDF
-
-# Fungsi untuk menangani nama file PDF
-async def get_pdf_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pdf_name = update.message.text.strip()
-    if not pdf_name:
-        await update.message.reply_text('Nama file tidak boleh kosong. Masukkan nama file PDF (tanpa ekstensi):')
-        return
-
-    pdf_file_path = os.path.join(IMAGES_FOLDER, f'{pdf_name}.pdf')
+    # Simpan foto di user_data sementara
+    user_data[update.effective_chat.id] = {
+        "photo": photo_bytes
+    }
     
-    # Mengonversi gambar ke dalam PDF
-    images = [Image.open(img_path) for img_path in images_list]
-    for i in range(len(images)):
-        images[i] = images[i].convert('RGB')
+    await update.message.reply_text("Masukkan nama file output PDF (tanpa ekstensi):")
+    return WAITING_FOR_NAME
 
-    images[0].save(pdf_file_path, save_all=True, append_images=images[1:])
+async def handle_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file_name = update.message.text.strip()
+    if not file_name:
+        await update.message.reply_text("Nama file tidak valid. Masukkan nama file yang benar:")
+        return WAITING_FOR_NAME
+    
+    # Ambil foto yang disimpan sebelumnya
+    data = user_data.get(update.effective_chat.id)
+    if not data:
+        await update.message.reply_text("Terjadi kesalahan. Silakan kirim gambar lagi.")
+        return ConversationHandler.END
+    
+    photo_bytes = data["photo"]
+    
+    # Konversi gambar ke PDF
+    image = Image.open(io.BytesIO(photo_bytes)).convert("RGB")
+    pdf_stream = io.BytesIO()
+    image.save(pdf_stream, format="PDF")
+    pdf_stream.seek(0)
+    
+    # Kirim file PDF ke pengguna
+    await update.message.reply_document(
+        document=InputFile(pdf_stream, filename=f"{file_name}.pdf"),
+        caption="Berikut PDF yang telah dibuat!"
+    )
+    
+    # Bersihkan data sementara
+    user_data.pop(update.effective_chat.id, None)
+    
+    return ConversationHandler.END
 
-    # Mengirim file PDF ke pengguna
-    with open(pdf_file_path, 'rb') as pdf_file:
-        await update.message.reply_document(document=InputFile(pdf_file), filename=f'{pdf_name}.pdf')
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Dibatalkan.")
+    return ConversationHandler.END
 
-    # Hapus gambar sementara setelah konversi
-    for img in images_list:
-        os.remove(img)
-    images_list.clear()  # Kosongkan daftar gambar
-
-    await update.message.reply_text('PDF telah dibuat! Kirim lebih banyak gambar atau ketik /start untuk memulai kembali.')
-
-# Fungsi utama untuk menjalankan bot
-async def main():
-    application = ApplicationBuilder().token(TOKEN).build()  # Ganti Updater dengan ApplicationBuilder
+def main():
+    # Ganti dengan token bot Anda
+    BOT_TOKEN = "7676918385:AAEnyECKBbQ9fnJk6h1TvWsGm6yiaj7h8As"
+    
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # ConversationHandler untuk menangani percakapan
+    conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.PHOTO, handle_photo)],
+        states={
+            WAITING_FOR_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_name)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # Menggunakan filters
-    application.add_handler(CommandHandler("done", done))
+    application.add_handler(conv_handler)
+    
+    print("Bot sedang berjalan...")
+    application.run_polling()
 
-    # Handler untuk menangani input nama file PDF
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, get_pdf_name))  # Menggunakan filters
-
-    await application.run_polling()  # Menggunakan run_polling untuk menjalankan bot
-
-if __name__ == '__main__':
-    loop = asyncio.get_event_loop()  # Ambil loop yang sudah ada
-    loop.run_until_complete(main())  # Menjalankan main
+if __name__ == "__main__":
+    main()
